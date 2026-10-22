@@ -1,6 +1,6 @@
 # Login Style
 
-## 2026.10.21a
+## 2026.10.21b
 
 First version.
 
