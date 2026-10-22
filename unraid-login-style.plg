@@ -1,0 +1,85 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+ <!ENTITY name "unraid-login-style">
+ <!ENTITY author "joshmans">
+ <!ENTITY version "2026.10.21a">
+ <!ENTITY gitURL "https://github.com/joshmans/unraid-login-style">
+ <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
+ <!ENTITY plgURL "https://raw.githubusercontent.com/joshmans/unraid-login-style/main/&name;.plg">
+ <!ENTITY sha256 "f40960b3375fd7fb443770ec2c5329322cfc573e069ac8bf94719b2d35a2c821">
+ <!ENTITY launch "Settings/LoginStyle">
+]>
+
+<PLUGIN name="&name;" Title="Login Style" author="&author;" version="&version;" pluginURL="&plgURL;" launch="&launch;" icon="paint-brush" min="7.2.0" support="&gitURL;/issues">
+
+<DESCRIPTION>
+Gives the Unraid login page a dark look: a colour preset (Midnight, Graphite or Ember) or your own colours, an optional background image and your own logo. Unraid has no setting for this page, so the plugin adds one include line to the login page file and removes it again when you uninstall. It does not change how signing in works.
+</DESCRIPTION>
+
+<CHANGES><![CDATA[
+# Login Style
+
+## 2026.10.21a
+
+First version.
+
+- Restyles the Unraid login page dark, in **Settings > User Preferences > Login Style**: pick Midnight, Graphite or Ember, or set your own four colours.
+- Optional background image (an https address, or a file on the server) and your own logo in place of the Unraid wordmark.
+- "Always dark" or "follow Unraid's theme" (light when Unraid is on a light theme). A switch turns the style off at once without uninstalling.
+- Unraid has no setting for the login page, so the plugin adds one include line to the page file at install and at every boot, checks that the page still parses, and takes the line out again when you uninstall or switch the plugin off. It never replaces the page from a backup, so an Unraid update is not overwritten.
+- If the style fails for any reason, the stock login page is shown.
+- Works on Unraid 7.2 and newer.
+]]></CHANGES>
+
+<!-- installpkg, not upgradepkg: see the note in unraid-log-health.plg (Slackware derives the package name by stripping
+     the last three dash fields, so name-version.txz derives to "unraid-login"). Older versions are removed explicitly first.
+     This step only removes package records: the login page patch and the settings are untouched until the new
+     package is in place. -->
+<FILE Run="/bin/bash">
+<INLINE>
+for pkg in /var/log/packages/&name;-*; do
+  if [ -e "$pkg" ]; then removepkg "$(basename "$pkg")" >/dev/null 2>&amp;1; fi
+done
+exit 0
+</INLINE>
+</FILE>
+
+<FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="installpkg">
+<URL>&pluginURL;</URL>
+<SHA256>&sha256;</SHA256>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+mkdir -p /boot/config/plugins/&name;
+
+# installpkg keeps whatever modes the archive had, so set them here
+chown -R root:root /usr/local/emhttp/plugins/&name;
+chmod -R 755 /usr/local/emhttp/plugins/&name;
+find /usr/local/emhttp/plugins/&name; -type f -exec chmod 644 {} \;
+chmod 755 /usr/local/emhttp/plugins/&name;/scripts/*
+
+# Unraid reinstalls every plugin at boot, and again after an OS update has replaced the login page, so this runs
+# every time. It adds one include line at the end of the page head, checks the page still parses, and does nothing if the
+# page is already patched or has an unexpected shape (then the stock login page is simply left alone).
+php -q /usr/local/emhttp/plugins/&name;/scripts/apply apply
+
+rm -f $(ls /boot/config/plugins/&name;/&name;-*.txz 2>/dev/null | grep -v "&version;")
+echo "Login Style &version; installed"
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+# take our line out of the login page first, while the script still exists
+php -q /usr/local/emhttp/plugins/&name;/scripts/apply remove
+rm -f /boot/config/plugins/&name;/&name;-*.txz
+for pkg in /var/log/packages/&name;-*; do
+  [ -e "$pkg" ] &amp;&amp; removepkg "$(basename "$pkg")" >/dev/null 2>&amp;1
+done
+rm -rf /usr/local/emhttp/plugins/&name; /tmp/unraid-login-style.notes
+# config.json and backup/ (the stock login page of each Unraid version it patched) stay on flash so a reinstall keeps your settings
+</INLINE>
+</FILE>
+
+</PLUGIN>

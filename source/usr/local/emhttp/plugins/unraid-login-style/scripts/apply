@@ -1,0 +1,64 @@
+#!/usr/bin/php -q
+<?php
+/* apply | remove | status
+ * apply adds one include line to Unraid's login page, just before </head>; remove takes exactly that line out again.
+ * Neither replaces the file from a backup, so an Unraid update that changed the page is never overwritten. The page is
+ * syntax-checked after the edit and put back if it does not parse: a broken login page would lock you out of the web UI. */
+
+const LS_BEGIN = '<!-- unraid-login-style:begin -->';
+const LS_END   = '<!-- unraid-login-style:end -->';
+
+$target = getenv('LS_LOGIN_PAGE') ?: '/usr/local/emhttp/plugins/dynamix/include/.login.php';
+$backupDir = getenv('LS_BACKUP_DIR') ?: '/boot/config/plugins/unraid-login-style/backup';
+$inject = getenv('LS_INJECT') ?: '/usr/local/emhttp/plugins/unraid-login-style/include/inject.php';
+$cmd = $argv[1] ?? 'status';
+
+function out(string $m, int $rc = 0): void { fwrite($rc ? STDERR : STDOUT, $m . "\n"); exit($rc); }
+
+function ls_block(string $inject): string {
+    return LS_BEGIN . "<?php @include " . var_export($inject, true) . "; ?>" . LS_END . "\n";
+}
+
+/** The page with our block removed (or unchanged if it was never added). */
+function ls_strip(string $src): string {
+    return preg_replace('/' . preg_quote(LS_BEGIN, '/') . '.*?' . preg_quote(LS_END, '/') . "\n?/s", '', $src);
+}
+
+function ls_parses(string $file): bool {
+    exec('php -l ' . escapeshellarg($file) . ' 2>&1', $o, $rc);
+    return $rc === 0;
+}
+
+function ls_write(string $target, string $content): bool {
+    $tmp = $target . '.ls' . getmypid();
+    if (@file_put_contents($tmp, $content) === false) return false;
+    @chmod($tmp, fileperms($target) & 07777);
+    if (!ls_parses($tmp)) { @unlink($tmp); return false; }
+    return @rename($tmp, $target);
+}
+
+if (!is_file($target)) out("login page not found: $target", 1);
+$src = file_get_contents($target);
+$has = strpos($src, LS_BEGIN) !== false;
+
+if ($cmd === 'status') out($has ? 'applied' : 'not applied');
+
+if ($cmd === 'remove') {
+    if (!$has) out('nothing to remove');
+    ls_write($target, ls_strip($src)) or out('could not rewrite the login page', 1);
+    out('removed');
+}
+
+if ($cmd === 'apply') {
+    $clean = ls_strip($src);
+    if (substr_count($clean, '</head>') !== 1) out('the login page has no single </head>; leaving it as it is', 1);
+    $new = str_replace('</head>', ls_block($inject) . '</head>', $clean);
+    if ($new === $src) out('already applied');
+    if (!is_dir($backupDir)) @mkdir($backupDir, 0755, true);
+    $ver = preg_replace('/[^0-9A-Za-z._-]/', '', preg_replace('/^version=/', '', trim((string)@file_get_contents('/etc/unraid-version')))) ?: 'unknown';
+    $bak = "$backupDir/.login.php.$ver";
+    if (!is_file($bak)) @copy($target, $bak);   // the stock page of that Unraid version, kept for reference
+    ls_write($target, $new) or out('the edited login page did not parse; left it as it was', 1);
+    out('applied');
+}
+out("usage: apply | remove | status", 2);

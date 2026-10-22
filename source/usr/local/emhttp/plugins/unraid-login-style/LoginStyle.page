@@ -1,0 +1,6 @@
+Menu="UserPreferences"
+Title="Login Style"
+Icon="paint-brush"
+Tag="paint-brush"
+---
+<?PHP require_once "/usr/local/emhttp/plugins/unraid-login-style/include/page.php"; ?>
